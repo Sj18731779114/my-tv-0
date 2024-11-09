@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.DisplayMetrics
 import android.util.Log
 import android.view.GestureDetector
 import android.view.KeyEvent
@@ -277,7 +278,13 @@ class MainActivity : AppCompatActivity() {
         private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            showFragment(menuFragment)
+
+            val screenWidth = getResources().displayMetrics.widthPixels;
+            if(e.x < screenWidth / 2)
+                showFragment(menuFragment)
+            else
+                showSetting()
+
             return true
         }
 
