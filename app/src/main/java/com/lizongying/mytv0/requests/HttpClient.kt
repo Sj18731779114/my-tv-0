@@ -51,7 +51,6 @@ object HttpClient {
 
                 // a more robust version is to pass a custom X509TrustManager
                 // as the second parameter and make checkServerTrusted to accept your server.
-                // Credits: https://github.com/square/okhttp/issues/2372#issuecomment-1774955225
                 val trustManagerFactory = TrustManagerFactory.getInstance(
                     TrustManagerFactory.getDefaultAlgorithm()
                 )
