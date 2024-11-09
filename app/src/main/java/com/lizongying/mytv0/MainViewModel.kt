@@ -230,9 +230,9 @@ class MainViewModel : ViewModel() {
 
     private fun str2List(str: String): Boolean {
         var string = str
-        if (initialized && string != cacheConfig) {
-            return false
-        }
+//        if (initialized && string == cacheConfig) {
+//            return true
+//        }
         val g = Gua()
         if (g.verify(str)) {
             string = g.decode(str)
