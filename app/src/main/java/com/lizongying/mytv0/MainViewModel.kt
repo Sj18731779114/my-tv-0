@@ -83,7 +83,7 @@ class MainViewModel : ViewModel() {
 
     fun init(context: Context) {
         groupModel.addTVListModel(TVListModel("我的收藏", 0))
-        groupModel.addTVListModel(TVListModel("全部頻道", 1))
+        groupModel.addTVListModel(TVListModel("全部频道", 1))
 
         appDirectory = context.filesDir
         cacheFile = File(appDirectory, FILE_NAME)
@@ -111,6 +111,10 @@ class MainViewModel : ViewModel() {
         initialized = true
 
         _channelsOk.value = true
+
+        val uriString = "https://gitee.com/SONGBINBINC/songbb.tv/raw/master/list.m3u8"
+        val uri = Uri.parse(uriString)
+        parseUriX(uri);
     }
 
     private suspend fun updateEPG(epg: String) {
@@ -182,7 +186,7 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun parseUri(uri: Uri) {
+    private fun parseUriX(uri: Uri) {
         if (uri.scheme == "file") {
             val file = uri.toFile()
             Log.i(TAG, "file $file")
@@ -201,6 +205,10 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    fun parseUri(uri: Uri) {
+
+    }
+
     fun tryStr2List(str: String, file: File?, url: String) {
         try {
             if (str2List(str)) {
@@ -208,9 +216,10 @@ class MainViewModel : ViewModel() {
                 cacheConfig = str
                 SP.config = url
                 _channelsOk.value = true
-                R.string.channel_import_success.showToast()
+//                R.string.channel_import_success.showToast()
             } else {
                 R.string.channel_import_error.showToast()
+                str.showToast()
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -221,7 +230,7 @@ class MainViewModel : ViewModel() {
 
     private fun str2List(str: String): Boolean {
         var string = str
-        if (initialized && string == cacheConfig) {
+        if (initialized && string != cacheConfig) {
             return false
         }
         val g = Gua()
@@ -229,9 +238,6 @@ class MainViewModel : ViewModel() {
             string = g.decode(str)
         }
         if (string.isEmpty()) {
-            return false
-        }
-        if (initialized && string == cacheConfig) {
             return false
         }
 
