@@ -175,13 +175,13 @@ class MainActivity : AppCompatActivity() {
 //                    // R.string.play_last_channel.showToast()
 //                    SP.position
 //                }
-                        Log.i(TAG, "播放上次頻道")
+                        Log.i(TAG, "播放上次频道")
                         viewModel.groupModel.getCurrent()
                     }
                     viewModel.groupModel.setPlaying()
                     viewModel.groupModel.getCurrentList()
                         ?.let {
-                            Log.i(TAG, "當前組 ${it.getName()}")
+                            Log.i(TAG, "当前组 ${it.getName()}")
                             it.setPlaying()
                         }
                     tvModel?.setReady()
@@ -238,7 +238,7 @@ class MainActivity : AppCompatActivity() {
                 if (tvModel.ready.value != null
 //                    && tvModel.tv.id == TVList.positionValue
                 ) {
-                    Log.i(TAG, "${tvModel.tv.title} 嘗試播放")
+                    Log.i(TAG, "${tvModel.tv.title} 尝试播放")
                     hideFragment(errorFragment)
                     showFragment(loadingFragment)
                     playerFragment.play(tvModel)
