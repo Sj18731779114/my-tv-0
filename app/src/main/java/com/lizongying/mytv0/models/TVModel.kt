@@ -8,7 +8,8 @@ import androidx.lifecycle.ViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.datasource.rtmp.RtmpDataSource
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
@@ -19,14 +20,11 @@ import com.lizongying.mytv0.data.EPG
 import com.lizongying.mytv0.data.Program
 import com.lizongying.mytv0.data.SourceType
 import com.lizongying.mytv0.data.TV
+import com.lizongying.mytv0.requests.HttpClient
 import kotlin.math.max
 import kotlin.math.min
 
 class TVModel(var tv: TV) : ViewModel() {
-    private val _position = MutableLiveData<Int>()
-    val position: LiveData<Int>
-        get() = _position
-
     var retryTimes = 0
     var retryMaxTimes = 10
     var programUpdateTime = 0L
@@ -45,11 +43,11 @@ class TVModel(var tv: TV) : ViewModel() {
 
     var listIndex = 0
 
-    private var sources: MutableList<SourceType> =
-        mutableListOf(
+    private var sourceTypeList: List<SourceType> =
+        listOf(
             SourceType.UNKNOWN,
         )
-    private var sourceIndex = -1
+    private var sourceTypeIndex = 0
 
     private val _errInfo = MutableLiveData<String>()
     val errInfo: LiveData<String>
@@ -59,11 +57,11 @@ class TVModel(var tv: TV) : ViewModel() {
         _errInfo.value = info
     }
 
-    private var _epg = MutableLiveData<MutableList<EPG>>()
-    val epg: LiveData<MutableList<EPG>>
+    private var _epg = MutableLiveData<List<EPG>>()
+    val epg: LiveData<List<EPG>>
         get() = _epg
 
-    fun setEpg(epg: MutableList<EPG>) {
+    fun setEpg(epg: List<EPG>) {
         _epg.value = epg
     }
 
@@ -71,17 +69,18 @@ class TVModel(var tv: TV) : ViewModel() {
     val program: LiveData<MutableList<Program>>
         get() = _program
 
-    private fun getVideoUrl(): String? {
-        if (_videoIndex.value == null || tv.uris.isEmpty()) {
+    private val _videoIndex = MutableLiveData<Int>()
+    val videoIndex: LiveData<Int>
+        get() = _videoIndex
+    val videoIndexValue: Int
+        get() = _videoIndex.value ?: 0
+
+    fun getVideoUrl(): String? {
+        if (videoIndexValue >= tv.uris.size) {
             return null
         }
 
-        if (videoIndex.value!! >= tv.uris.size) {
-            return null
-        }
-
-        val index = min(max(_videoIndex.value!!, 0), tv.uris.size - 1)
-        return tv.uris[index]
+        return tv.uris[videoIndexValue]
     }
 
     private val _like = MutableLiveData<Boolean>()
@@ -96,153 +95,151 @@ class TVModel(var tv: TV) : ViewModel() {
     val ready: LiveData<Boolean>
         get() = _ready
 
-    fun setReady() {
-//        _videoIndex.value = (_videoIndex.value!! + 1) % tv.uris.size
-//        if (tv.uris.size < 2) {
-//            _videoIndex.value = 0
-//        } else {
-//            _videoIndex.value = Random.nextInt(0, tv.uris.size - 1)
-//        }
+    fun setReady(retry: Boolean = false) {
+        if (!retry) {
+            setErrInfo("")
+            retryTimes = 0
+
+            _videoIndex.value = max(0, min(tv.uris.size - 1, tv.videoIndex))
+            sourceTypeIndex =
+                max(0, min(sourceTypeList.size - 1, sourceTypeList.indexOf(tv.sourceType)))
+        }
         _ready.value = true
     }
 
-    private val _videoIndex = MutableLiveData<Int>()
-    private val videoIndex: LiveData<Int>
-        get() = _videoIndex
-
     private var userAgent = ""
 
-    // TODO Maybe _mediaItem has not been initialized when play
-    private lateinit var _mediaItem: MediaItem
+    private var _httpDataSource: DataSource.Factory? = null
+    private var _mediaItem: MediaItem? = null
 
+    @OptIn(UnstableApi::class)
     fun getMediaItem(): MediaItem? {
-        if (::_mediaItem.isInitialized) {
-            return _mediaItem
-        } else {
-            getVideoUrl()?.let {
-                _mediaItem = MediaItem.fromUri(it)
-                return _mediaItem
+        _mediaItem = getVideoUrl()?.let {
+            val uri = Uri.parse(it) ?: return@let null
+            val path = uri.path ?: return@let null
+            val scheme = uri.scheme ?: return@let null
+
+            val okHttpDataSource = OkHttpDataSource.Factory(HttpClient.okHttpClient)
+            tv.headers?.let { i ->
+                okHttpDataSource.setDefaultRequestProperties(i)
+                i.forEach { (key, value) ->
+                    if (key.equals("user-agent", ignoreCase = true)) {
+                        userAgent = value
+                        return@forEach
+                    }
+                }
             }
 
+            _httpDataSource = okHttpDataSource
+
+            sourceTypeList = if (path.lowercase().endsWith(".m3u8")) {
+                listOf(SourceType.HLS)
+            } else if (path.lowercase().endsWith(".mpd")) {
+                listOf(SourceType.DASH)
+            } else if (scheme.lowercase() == "rtsp") {
+                listOf(SourceType.RTSP)
+            } else if (scheme.lowercase() == "rtmp") {
+                listOf(SourceType.RTMP)
+            } else if (scheme.lowercase() == "rtp") {
+                listOf(SourceType.RTP)
+            } else {
+                listOf(SourceType.HLS, SourceType.PROGRESSIVE)
+            }
+
+            MediaItem.fromUri(it)
+        }
+        return _mediaItem
+    }
+
+    fun getSourceTypeDefault(): SourceType {
+        return tv.sourceType
+    }
+
+    fun getSourceTypeCurrent(): SourceType {
+        sourceTypeIndex = max(0, min(sourceTypeList.size - 1, sourceTypeIndex))
+        return sourceTypeList[sourceTypeIndex]
+    }
+
+    fun nextSourceType(): Boolean {
+        sourceTypeIndex = (sourceTypeIndex + 1) % sourceTypeList.size
+
+        return sourceTypeIndex == sourceTypeList.size - 1
+    }
+
+    fun confirmSourceType() {
+        // TODO save default sourceType
+        tv.sourceType = getSourceTypeCurrent()
+    }
+
+    fun confirmVideoIndex() {
+        tv.videoIndex = videoIndexValue
+    }
+
+    @OptIn(UnstableApi::class)
+    fun getMediaSource(): MediaSource? {
+        if (sourceTypeList.isEmpty()) {
             return null
+        }
+
+        if (_mediaItem == null) {
+            return null
+        }
+        val mediaItem = _mediaItem!!
+
+        if (_httpDataSource == null) {
+            return null
+        }
+        val httpDataSource = _httpDataSource!!
+
+        return when (getSourceTypeCurrent()) {
+            SourceType.HLS -> HlsMediaSource.Factory(httpDataSource).createMediaSource(mediaItem)
+            SourceType.RTSP -> if (userAgent.isEmpty()) {
+                RtspMediaSource.Factory().createMediaSource(mediaItem)
+            } else {
+                RtspMediaSource.Factory().setUserAgent(userAgent).createMediaSource(mediaItem)
+            }
+
+            SourceType.RTMP -> {
+                val rtmpDataSource = RtmpDataSource.Factory()
+                ProgressiveMediaSource.Factory(rtmpDataSource)
+                    .createMediaSource(mediaItem)
+            }
+
+            SourceType.RTP -> null
+
+            SourceType.DASH -> DashMediaSource.Factory(httpDataSource).createMediaSource(mediaItem)
+            SourceType.PROGRESSIVE -> ProgressiveMediaSource.Factory(httpDataSource)
+                .createMediaSource(mediaItem)
+
+            else -> null
         }
     }
 
-    private lateinit var httpDataSource: DataSource.Factory
+    fun isLastVideo(): Boolean {
+        return videoIndexValue == tv.uris.size - 1
+    }
 
-    init {
-        _position.value = 0
-        _videoIndex.value = max(0, tv.uris.size - 1)
-        _like.value = SP.getLike(tv.id)
-        _program.value = mutableListOf()
+    fun nextVideo(): Boolean {
+        if (tv.uris.isEmpty()) {
+            return false
+        }
 
-        buildSource()
+        _videoIndex.value = (videoIndexValue + 1) % tv.uris.size
+        sourceTypeList = listOf(
+            SourceType.UNKNOWN,
+        )
+
+        return isLastVideo()
     }
 
     fun update(t: TV) {
         tv = t
     }
 
-    @OptIn(UnstableApi::class)
-    fun buildSource() {
-        val url = getVideoUrl() ?: return
-        val uri = Uri.parse(url) ?: return
-        val path = uri.path ?: return
-        val scheme = uri.scheme ?: return
-
-//        val okHttpDataSource = OkHttpDataSource.Factory(HttpClient.okHttpClient)
-//        httpDataSource = okHttpDataSource
-
-        val defaultHttpDataSource = DefaultHttpDataSource.Factory()
-        defaultHttpDataSource.setKeepPostFor302Redirects(true)
-        defaultHttpDataSource.setAllowCrossProtocolRedirects(true)
-        tv.headers?.let {
-            defaultHttpDataSource.setDefaultRequestProperties(it)
-            it.forEach { (key, value) ->
-                if (key.equals("user-agent", ignoreCase = true)) {
-                    userAgent = value
-                    return@forEach
-                }
-            }
-        }
-
-        httpDataSource = defaultHttpDataSource
-
-        _mediaItem = MediaItem.fromUri(uri.toString())
-
-        if (path.lowercase().endsWith(".m3u8")) {
-            addSource(SourceType.HLS)
-        } else if (path.lowercase().endsWith(".mpd")) {
-            addSource(SourceType.DASH)
-        } else if (scheme.lowercase() == "rtsp") {
-            addSource(SourceType.RTSP)
-        } else {
-//            addSource(SourceType.UNKNOWN)
-//            addSource(SourceType.PROGRESSIVE)
-            addSource(SourceType.HLS)
-        }
-
-        nextSource()
-    }
-
-    private fun addSource(sourceType: SourceType) {
-        sources[0] = sourceType
-
-        for (i in listOf(
-            SourceType.PROGRESSIVE,
-            SourceType.HLS,
-            SourceType.RTSP,
-            SourceType.DASH,
-            SourceType.UNKNOWN
-        )) {
-            if (i != sourceType) {
-                sources.add(i)
-            }
-        }
-    }
-
-    fun getSourceType(): SourceType {
-        return tv.sourceType
-    }
-
-    fun getSourceTypeCurrent(): SourceType {
-        return sources[sourceIndex]
-    }
-
-    fun nextSource() {
-        sourceIndex = (sourceIndex + 1) % sources.size
-    }
-
-    @OptIn(UnstableApi::class)
-    fun getSource(): MediaSource? {
-        if (sources.isEmpty()) {
-            return null
-        }
-        if (!::_mediaItem.isInitialized) {
-            return null
-        }
-        sourceIndex = max(0, sourceIndex)
-        sourceIndex = min(sourceIndex, sources.size - 1)
-
-        return when (sources[sourceIndex]) {
-            SourceType.HLS -> HlsMediaSource.Factory(httpDataSource).createMediaSource(_mediaItem)
-            SourceType.RTSP -> if (userAgent.isEmpty()) {
-                RtspMediaSource.Factory().createMediaSource(_mediaItem)
-            } else {
-                RtspMediaSource.Factory().setUserAgent(userAgent).createMediaSource(_mediaItem)
-            }
-
-            SourceType.DASH -> DashMediaSource.Factory(httpDataSource).createMediaSource(_mediaItem)
-            SourceType.PROGRESSIVE -> ProgressiveMediaSource.Factory(httpDataSource)
-                .createMediaSource(_mediaItem)
-
-            else -> null
-        }
-    }
-
-    fun confirmSourceType() {
-        // TODO save default sourceType
-        tv.sourceType = sources[sourceIndex]
+    init {
+        _videoIndex.value = max(0, min(tv.uris.size - 1, tv.videoIndex))
+        _like.value = SP.getLike(tv.id)
+        _program.value = mutableListOf()
     }
 
     companion object {

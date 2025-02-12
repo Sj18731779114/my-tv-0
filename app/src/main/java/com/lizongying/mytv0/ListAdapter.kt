@@ -3,26 +3,22 @@ package com.lizongying.mytv0
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.drawable.BitmapDrawable
 import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS
 import android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
 import androidx.core.content.ContextCompat
-import androidx.core.view.marginStart
 import androidx.core.view.setPadding
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.bumptech.glide.Glide
 import com.lizongying.mytv0.databinding.ListItemBinding
 import com.lizongying.mytv0.models.TVListModel
 import com.lizongying.mytv0.models.TVModel
-import java.util.Locale
 
 
 class ListAdapter(
@@ -36,7 +32,7 @@ class ListAdapter(
     private var defaultFocused = false
     private var defaultFocus: Int = -1
 
-    var visiable = false
+    var visible = false
 
     val application = context.applicationContext as MyTVApplication
 
@@ -48,20 +44,13 @@ class ListAdapter(
         binding.icon.layoutParams.height = application.px2Px(binding.icon.layoutParams.height)
         binding.icon.setPadding(application.px2Px(binding.icon.paddingTop))
 
-        val layoutParams = binding.title.layoutParams as ViewGroup.MarginLayoutParams
-        layoutParams.marginStart = application.px2Px(binding.title.marginStart)
-        binding.title.layoutParams = layoutParams
+        binding.title.layoutParams.width = application.px2Px(binding.title.layoutParams.width)
+        binding.title.layoutParams.height = application.px2Px(binding.title.layoutParams.height)
+        binding.title.textSize = application.px2PxFont(binding.title.textSize)
 
         binding.heart.layoutParams.width = application.px2Px(binding.heart.layoutParams.width)
         binding.heart.layoutParams.height = application.px2Px(binding.heart.layoutParams.height)
-
-        binding.title.textSize = application.px2PxFont(binding.title.textSize)
-
-        val layoutParamsHeart = binding.heart.layoutParams as ViewGroup.MarginLayoutParams
-        layoutParamsHeart.marginStart = application.px2Px(binding.heart.marginStart)
-        binding.heart.layoutParams = layoutParamsHeart
-
-        binding.description.textSize = application.px2PxFont(binding.description.textSize)
+        binding.heart.setPadding(application.px2Px(binding.heart.paddingTop))
 
         return ViewHolder(context, binding)
     }
@@ -114,12 +103,12 @@ class ListAdapter(
                 if (hasFocus) {
                     viewHolder.focus(true)
                     focused = view
-                    if (visiable) {
+                    if (visible) {
                         if (position != it.positionValue) {
                             it.setPosition(position)
                         }
                     } else {
-                        visiable = true
+                        visible = true
                     }
                 } else {
                     viewHolder.focus(false)
@@ -131,6 +120,25 @@ class ListAdapter(
             view.setOnClickListener { _ ->
                 listener?.onItemClicked(position)
             }
+
+            view.setOnTouchListener(object : View.OnTouchListener {
+                override fun onTouch(
+                    v: View?,
+                    event: MotionEvent?
+                ): Boolean {
+                    v ?: return false
+                    event ?: return false
+
+                    when (event.action) {
+                        MotionEvent.ACTION_UP -> {
+                            v.performClick()
+                            return true
+                        }
+                    }
+
+                    return false
+                }
+            })
 
             view.setOnKeyListener { _, keyCode, event: KeyEvent? ->
                 if (event?.action == KeyEvent.ACTION_DOWN) {
@@ -176,7 +184,11 @@ class ListAdapter(
 
             viewHolder.bindTitle(tvModel.tv.title)
 
-            viewHolder.bindImage(tvModel.tv.logo, tvModel.tv.id)
+            var name = tvModel.tv.name
+            if (name.isEmpty()) {
+                name = tvModel.tv.title
+            }
+            viewHolder.bindImage(tvModel.tv.logo, tvModel.tv.id, name, tvModel)
         }
     }
 
@@ -184,54 +196,47 @@ class ListAdapter(
 
     class ViewHolder(private val context: Context, val binding: ListItemBinding) :
         RecyclerView.ViewHolder(binding.root) {
+
+        val application = context.applicationContext as MyTVApplication
+        val imageHelper = application.imageHelper
+
+
         fun bindTitle(text: String) {
             binding.title.text = text
         }
 
-        fun bindImage(url: String?, id: Int) {
-            val width = Utils.dpToPx(40)
-            val height = Utils.dpToPx(40)
+        fun bindImage(url: String, id: Int, name: String, tvModel: TVModel) {
+            val width = 300
+            val height = 180
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
 
+            val channelNum = id + 1
+            var size = 150f
+            if (channelNum > 99) {
+                size = 100f
+            }
+            if (channelNum > 999) {
+                size = 75f
+            }
             val paint = Paint().apply {
-                color = Color.WHITE
-                textSize = 32f
+                color = ContextCompat.getColor(context, R.color.title_blur)
+                textSize = size
                 textAlign = Paint.Align.CENTER
             }
-            val text = String.format(Locale.getDefault(), "%3d", id + 1)
             val x = width / 2f
             val y = height / 2f - (paint.descent() + paint.ascent()) / 2
-            canvas.drawText(text, x, y, paint)
+            canvas.drawText(channelNum.toString(), x, y, paint)
 
-            if (url.isNullOrBlank()) {
-                Glide.with(context)
-                    .load(BitmapDrawable(context.resources, bitmap))
-                    .centerInside()
-                    .into(binding.icon)
-//                binding.imageView.setImageDrawable(null)
-            } else {
-                Glide.with(context)
-                    .load(url)
-                    .centerInside()
-                    .error(BitmapDrawable(context.resources, bitmap))
-                    .into(binding.icon)
-            }
+            imageHelper.loadImage(name, binding.icon, bitmap, tvModel.tv.logo)
         }
 
         fun focus(hasFocus: Boolean) {
             if (hasFocus) {
                 binding.title.setTextColor(ContextCompat.getColor(context, R.color.white))
-                binding.description.setTextColor(ContextCompat.getColor(context, R.color.white))
                 binding.root.setBackgroundResource(R.color.focus)
             } else {
                 binding.title.setTextColor(ContextCompat.getColor(context, R.color.title_blur))
-                binding.description.setTextColor(
-                    ContextCompat.getColor(
-                        context,
-                        R.color.description_blur
-                    )
-                )
                 binding.root.setBackgroundResource(R.color.blur)
             }
         }
@@ -241,14 +246,14 @@ class ListAdapter(
                 binding.heart.setImageDrawable(
                     ContextCompat.getDrawable(
                         context,
-                        R.drawable.ic_heart
+                        R.drawable.baseline_favorite_24
                     )
                 )
             } else {
                 binding.heart.setImageDrawable(
                     ContextCompat.getDrawable(
                         context,
-                        R.drawable.ic_heart_empty
+                        R.drawable.baseline_favorite_border_24
                     )
                 )
             }
